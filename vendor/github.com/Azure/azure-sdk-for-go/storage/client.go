@@ -46,7 +46,7 @@ const (
 
 	// DefaultAPIVersion is the Azure Storage API version string used when a
 	// basic client is created.
-	DefaultAPIVersion = "2016-05-31"
+	DefaultAPIVersion = "2018-03-28"
 
 	defaultUseHTTPS      = true
 	defaultRetryAttempts = 5
@@ -367,11 +367,14 @@ func newSASClient(accountName, baseURL string, sasToken url.Values) Client {
 		accountName:     accountName,
 		baseURL:         baseURL,
 		accountSASToken: sasToken,
+		useHTTPS:        defaultUseHTTPS,
 	}
 	c.userAgent = c.getDefaultUserAgent()
 	// Get API version and protocol from token
 	c.apiVersion = sasToken.Get("sv")
-	c.useHTTPS = sasToken.Get("spr") == "https"
+	if spr := sasToken.Get("spr"); spr != "" {
+		c.useHTTPS = spr == "https"
+	}
 	return c
 }
 
@@ -592,11 +595,15 @@ func (c Client) GetAccountSASToken(options AccountSASTokenOptions) (url.Values, 
 	// build start time, if exists
 	start := ""
 	if options.Start != (time.Time{}) {
-		start = options.Start.UTC().Format(time.RFC3339)
+		start = options.Start.Format(time.RFC3339)
+		// For some reason I don't understand, it fails when the rest of the string is included
+		start = start[:10]
 	}
 
 	// build expiry time
-	expiry := options.Expiry.UTC().Format(time.RFC3339)
+	expiry := options.Expiry.Format(time.RFC3339)
+	// For some reason I don't understand, it fails when the rest of the string is included
+	expiry = expiry[:10]
 
 	protocol := "https,http"
 	if options.UseHTTPS {
