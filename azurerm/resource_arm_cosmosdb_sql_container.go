@@ -3,9 +3,11 @@ package azurerm
 import (
 	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/Azure/azure-sdk-for-go/services/cosmos-db/mgmt/2015-04-08/documentdb"
 	"github.com/hashicorp/terraform/helper/schema"
+	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/azure"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/response"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/tf"
@@ -17,6 +19,7 @@ func resourceArmCosmosDbSQLContainer() *schema.Resource {
 	return &schema.Resource{
 		Create: resourceArmCosmosDbSQLContainerCreateUpdate,
 		Read:   resourceArmCosmosDbSQLContainerRead,
+		Update: resourceArmCosmosDbSQLContainerCreateUpdate,
 		Delete: resourceArmCosmosDbSQLContainerDelete,
 
 		Importer: &schema.ResourceImporter{
@@ -46,6 +49,37 @@ func resourceArmCosmosDbSQLContainer() *schema.Resource {
 				ForceNew:     true,
 				ValidateFunc: validate.CosmosEntityName,
 			},
+
+			"partition_key": {
+				Type:     schema.TypeList,
+				Required: true,
+				MaxItems: 1,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"kind": {
+							Type:     schema.TypeString,
+							Required: true,
+							ValidateFunc: validation.StringInSlice([]string{
+								string(documentdb.PartitionKindHash),
+								string(documentdb.PartitionKindRange),
+							}, false),
+						},
+						"paths": {
+							Type:     schema.TypeList,
+							Required: true,
+							MinItems: 1,
+							Elem: &schema.Schema{
+								Type: schema.TypeString,
+							},
+						},
+					},
+				},
+			},
+
+			"throughput": {
+				Type:     schema.TypeInt,
+				Optional: true,
+			},
 		},
 	}
 }
@@ -74,12 +108,16 @@ func resourceArmCosmosDbSQLContainerCreateUpdate(d *schema.ResourceData, meta in
 		}
 	}
 
+	partitionKeyRaw := d.Get("partition_key").([]interface{})
+	throughput := d.Get("throughput").(int)
+
 	parameters := documentdb.SQLContainerCreateUpdateParameters{
 		SQLContainerCreateUpdateProperties: &documentdb.SQLContainerCreateUpdateProperties{
 			Resource: &documentdb.SQLContainerResource{
-				ID: &name,
+				ID:           utils.String(name),
+				PartitionKey: expandCosmosDbSQLContainerPartitionKey(partitionKeyRaw),
 			},
-			Options: map[string]*string{},
+			Options: expandCosmosDbSQLContainerOptions(throughput),
 		},
 	}
 
@@ -129,6 +167,7 @@ func resourceArmCosmosDbSQLContainerRead(d *schema.ResourceData, meta interface{
 	d.Set("database_name", id.Database)
 	if properties := resp.SQLContainerProperties; properties != nil {
 		d.Set("name", properties.ID)
+		d.Set("partition_key", flattenCosmosDbSQLContainerPartitionKey(properties.PartitionKey))
 	}
 
 	return nil
@@ -156,4 +195,36 @@ func resourceArmCosmosDbSQLContainerDelete(d *schema.ResourceData, meta interfac
 	}
 
 	return nil
+}
+
+func expandCosmosDbSQLContainerOptions(throughput int) map[string]*string {
+	return map[string]*string{
+		"offerThroughput": utils.String(strconv.Itoa(throughput)),
+	}
+}
+
+func expandCosmosDbSQLContainerPartitionKey(input []interface{}) *documentdb.ContainerPartitionKey {
+	if len(input) == 0 {
+		return nil
+	}
+
+	v := input[0].(map[string]interface{})
+	kind := v["kind"].(string)
+	paths := v["paths"].([]interface{})
+
+	return &documentdb.ContainerPartitionKey{
+		Kind:  documentdb.PartitionKind(kind),
+		Paths: utils.ExpandStringSlice(paths),
+	}
+}
+
+func flattenCosmosDbSQLContainerPartitionKey(input *documentdb.ContainerPartitionKey) []interface{} {
+	if input == nil {
+		return []interface{}{}
+	}
+
+	result := make(map[string]interface{})
+	result["kind"] = string(input.Kind)
+	result["paths"] = utils.FlattenStringSlice(input.Paths)
+	return []interface{}{result}
 }
