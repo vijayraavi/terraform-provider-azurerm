@@ -771,9 +771,7 @@ func flattenApiManagementVirtualNetworkConfiguration(vnetType apimanagement.Virt
 
 	vnet := make(map[string]interface{})
 	vnet["type"] = string(vnetType)
-	if vnetConfig != nil {
-		vnet["subnet_id"] = vnetConfig.SubnetResourceID
-	}
+	vnet["subnet_id"] = vnetConfig.SubnetResourceID
 
 	return []interface{}{
 		vnet,
