@@ -36,6 +36,7 @@ func resourceArmApplicationInsights() *schema.Resource {
 
 			"location": azure.SchemaLocation(),
 
+			// TODO 2.0 change this to case4 sensitive to match description/azure?
 			"application_type": {
 				Type:             schema.TypeString,
 				Required:         true,
