@@ -17,8 +17,6 @@ import (
 
 // TODO: with the new SDK: changing the Tier of Blobs. Content type for Block blobs
 
-var supportsNewStorageFeatures = false
-
 func TestAccAzureRMStorageBlob_disappears(t *testing.T) {
 	resourceName := "azurerm_storage_blob.test"
 	ri := tf.AccRandTimeInt()
@@ -456,10 +454,6 @@ func TestAccAzureRMStorageBlob_requiresImport(t *testing.T) {
 }
 
 func TestAccAzureRMStorageBlob_update(t *testing.T) {
-	if !supportsNewStorageFeatures {
-		t.Skip("Current implementation doesn't support updating the Content Type..")
-	}
-
 	resourceName := "azurerm_storage_blob.test"
 	ri := tf.AccRandTimeInt()
 	rs := strings.ToLower(acctest.RandString(11))

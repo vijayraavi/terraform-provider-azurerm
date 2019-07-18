@@ -216,51 +216,50 @@ func resourceArmStorageBlobCreate(d *schema.ResourceData, meta interface{}) erro
 }
 
 func resourceArmStorageBlobUpdate(d *schema.ResourceData, meta interface{}) error {
-	armClient := meta.(*ArmClient)
-	ctx := armClient.StopContext
+	ctx := meta.(*ArmClient).StopContext
+	storageClient := meta.(*ArmClient).storage
 
-	id, err := parseStorageBlobID(d.Id(), armClient.environment)
+	id, err := blobs.ParseResourceID(d.Id())
 	if err != nil {
 		return err
 	}
 
-	resourceGroup, err := determineResourceGroupForStorageAccount(id.storageAccountName, armClient)
+	resourceGroup, err := storageClient.FindResourceGroup(ctx, id.AccountName)
 	if err != nil {
-		return err
+		return fmt.Errorf("Error locating Resource Group for Storage Account %q: %s", id.AccountName, err)
 	}
-
 	if resourceGroup == nil {
-		return fmt.Errorf("Unable to determine Resource Group for Storage Account %q", id.storageAccountName)
+		return fmt.Errorf("Unable to locate Resource Group for Storage Account %q", id.AccountName)
 	}
 
-	blobClient, accountExists, err := armClient.getBlobStorageClientForStorageAccount(ctx, *resourceGroup, id.storageAccountName)
+	client, err := storageClient.BlobsClient(ctx, *resourceGroup, id.AccountName)
 	if err != nil {
-		return fmt.Errorf("Error getting oldstorage account %s: %+v", id.storageAccountName, err)
+		return fmt.Errorf("Error building Blobs Client for Storage Account %q (Resource Group %q): %s", id.AccountName, *resourceGroup, err)
 	}
-	if !accountExists {
-		return fmt.Errorf("Storage account %s not found in resource group %s", id.storageAccountName, *resourceGroup)
-	}
-
-	container := blobClient.GetContainerReference(id.containerName)
-	blob := container.GetBlobReference(id.blobName)
 
 	if d.HasChange("content_type") {
-		blob.Properties.ContentType = d.Get("content_type").(string)
-	}
-
-	options := &oldstorage.SetBlobPropertiesOptions{}
-	err = blob.SetProperties(options)
-	if err != nil {
-		return fmt.Errorf("Error setting properties of blob %s (container %s, oldstorage account %s): %+v", id.blobName, id.containerName, id.storageAccountName, err)
+		log.Printf("[DEBUG] Updating the Properties for Blob %q (Container %q / Account %q)..", id.BlobName, id.ContainerName, id.AccountName)
+		input := blobs.SetPropertiesInput{
+			ContentType: utils.String(d.Get("content_type").(string)),
+		}
+		if _, err := client.SetProperties(ctx, id.AccountName, id.ContainerName, id.BlobName, input); err != nil {
+			return fmt.Errorf("Error updating the Properties for Blob %q (Container %q / Account %q): %s", id.BlobName, id.ContainerName, id.AccountName, err)
+		}
+		log.Printf("[DEBUG] Updated the Properties for Blob %q (Container %q / Account %q)", id.BlobName, id.ContainerName, id.AccountName)
 	}
 
 	if d.HasChange("metadata") {
-		blob.Metadata = expandStorageAccountBlobMetadata(d)
+		log.Printf("[DEBUG] Updating the MetaData for Blob %q (Container %q / Account %q)..", id.BlobName, id.ContainerName, id.AccountName)
+		metaDataRaw := d.Get("metadata").(map[string]interface{})
+		metaData := storage.ExpandMetaData(metaDataRaw)
 
-		opts := &oldstorage.SetBlobMetadataOptions{}
-		if err := blob.SetMetadata(opts); err != nil {
-			return fmt.Errorf("Error setting metadata for oldstorage blob on Azure: %s", err)
+		input := blobs.SetMetaDataInput{
+			MetaData: metaData,
 		}
+		if _, err := client.SetMetaData(ctx, id.AccountName, id.ContainerName, id.BlobName, input); err != nil {
+			return fmt.Errorf("Error updating the MetaData for Blob %q (Container %q / Account %q): %s", id.BlobName, id.ContainerName, id.AccountName, err)
+		}
+		log.Printf("[DEBUG] Updated the MetaData for Blob %q (Container %q / Account %q)", id.BlobName, id.ContainerName, id.AccountName)
 	}
 
 	return nil
