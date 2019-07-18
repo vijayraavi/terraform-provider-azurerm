@@ -35,7 +35,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/services/web/mgmt/2018-02-01/web"
 	mainStorage "github.com/Azure/azure-sdk-for-go/storage"
 	"github.com/Azure/go-autorest/autorest"
-	"github.com/Azure/go-autorest/autorest/adal"
 	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/hashicorp/go-azure-helpers/authentication"
 	"github.com/hashicorp/go-azure-helpers/sender"
@@ -84,6 +83,7 @@ import (
 type ArmClient struct {
 	clientId                 string
 	tenantId                 string
+	auxiliaryTenantIDs       []string
 	subscriptionId           string
 	partnerId                string
 	usingServicePrincipal    bool
@@ -299,6 +299,7 @@ func getArmClient(c *authentication.Config, skipProviderRegistration bool, partn
 	client := ArmClient{
 		clientId:                 c.ClientID,
 		tenantId:                 c.TenantID,
+		auxiliaryTenantIDs: c.AuxiliaryTenantIDs,
 		subscriptionId:           c.SubscriptionID,
 		partnerId:                partnerId,
 		environment:              *env,
@@ -306,35 +307,30 @@ func getArmClient(c *authentication.Config, skipProviderRegistration bool, partn
 		skipProviderRegistration: skipProviderRegistration,
 	}
 
-	oauthConfig, err := adal.NewOAuthConfig(env.ActiveDirectoryEndpoint, c.TenantID)
+	oauth, err := c.GetMultiOAuthConfig(env.ActiveDirectoryEndpoint)
 	if err != nil {
 		return nil, err
-	}
-
-	// OAuthConfigForTenant returns a pointer, which can be nil.
-	if oauthConfig == nil {
-		return nil, fmt.Errorf("Unable to configure OAuthConfig for tenant %s", c.TenantID)
 	}
 
 	sender := sender.BuildSender("AzureRM")
 
 	// Resource Manager endpoints
 	endpoint := env.ResourceManagerEndpoint
-	auth, err := c.GetAuthorizationToken(sender, oauthConfig, env.TokenAudience)
+	auth, err := c.GetAuthorizationTokenFromMultiOAuth(sender, oauth, env.TokenAudience)
 	if err != nil {
 		return nil, err
 	}
 
 	// Graph Endpoints
 	graphEndpoint := env.GraphEndpoint
-	graphAuth, err := c.GetAuthorizationToken(sender, oauthConfig, graphEndpoint)
+	graphAuth, err := c.GetAuthorizationTokenFromMultiOAuth(sender, oauth, graphEndpoint)
 	if err != nil {
 		return nil, err
 	}
 
 	// Key Vault Endpoints
 	keyVaultAuth := autorest.NewBearerAuthorizerCallback(sender, func(tenantID, resource string) (*autorest.BearerAuthorizer, error) {
-		keyVaultSpt, err := c.GetAuthorizationToken(sender, oauthConfig, resource)
+		keyVaultSpt, err := c.GetAuthorizationTokenFromMultiOAuth(sender, oauth, resource)
 		if err != nil {
 			return nil, err
 		}

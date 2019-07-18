@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	`os`
 	"strings"
 
 	"github.com/hashicorp/go-azure-helpers/authentication"
@@ -13,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform/terraform"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/suppress"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/validate"
+	`github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils`
 )
 
 // Provider returns a terraform.ResourceProvider.
@@ -35,6 +37,19 @@ func Provider() terraform.ResourceProvider {
 				Type:        schema.TypeString,
 				Optional:    true,
 				DefaultFunc: schema.EnvDefaultFunc("ARM_TENANT_ID", ""),
+			},
+
+			"auxiliary_tenant_ids": {
+				Type:        schema.TypeList,
+				Optional:    true,
+				Elem:        &schema.Schema{Type: schema.TypeString},
+				DefaultFunc: func() (interface{}, error) {
+					if v := os.Getenv("ARM_AUXILIARY_TENANT_IDS"); v != "" {
+						return strings.Split(v, ";"), nil
+					}
+
+					return nil, nil
+				},
 			},
 
 			"environment": {
@@ -461,11 +476,13 @@ func Provider() terraform.ResourceProvider {
 
 func providerConfigure(p *schema.Provider) schema.ConfigureFunc {
 	return func(d *schema.ResourceData) (interface{}, error) {
-		builder := &authentication.Builder{
+
+		authBuilder := &authentication.Builder{
 			SubscriptionID:     d.Get("subscription_id").(string),
 			ClientID:           d.Get("client_id").(string),
 			ClientSecret:       d.Get("client_secret").(string),
 			TenantID:           d.Get("tenant_id").(string),
+			AuxiliaryTenantIDs: *utils.ExpandStringSlice(d.Get("auxiliary_tenant_ids").([]interface{})),
 			Environment:        d.Get("environment").(string),
 			MsiEndpoint:        d.Get("msi_endpoint").(string),
 			ClientCertPassword: d.Get("client_certificate_password").(string),
@@ -481,15 +498,16 @@ func providerConfigure(p *schema.Provider) schema.ConfigureFunc {
 			ClientSecretDocsLink: "https://www.terraform.io/docs/providers/azurerm/auth/service_principal_client_secret.html",
 		}
 
-		config, err := builder.Build()
+		authConfig, err := authBuilder.Build()
 		if err != nil {
-			return nil, fmt.Errorf("Error building AzureRM Client: %s", err)
+			return nil, fmt.Errorf("Error building AzureRM config: %s", err)
 		}
 
 		partnerId := d.Get("partner_id").(string)
 		skipProviderRegistration := d.Get("skip_provider_registration").(bool)
-		client, err := getArmClient(config, skipProviderRegistration, partnerId)
 
+
+		client, err := getArmClient(authConfig, skipProviderRegistration, partnerId)
 		if err != nil {
 			return nil, err
 		}
