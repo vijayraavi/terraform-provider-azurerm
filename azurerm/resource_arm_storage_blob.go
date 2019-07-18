@@ -5,12 +5,15 @@ import (
 	"log"
 	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/storage"
+	oldstorage "github.com/Azure/azure-sdk-for-go/storage"
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/azure"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/tf"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/validate"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/storage"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
+	"github.com/tombuildsstuff/giovanni/storage/2018-11-09/blob/blobs"
 )
 
 func resourceArmStorageBlob() *schema.Resource {
@@ -160,22 +163,22 @@ func resourceArmStorageBlobCreate(d *schema.ResourceData, meta interface{}) erro
 	}
 
 	if sourceUri != "" {
-		options := &storage.CopyOptions{}
+		options := &oldstorage.CopyOptions{}
 		if err := blob.Copy(sourceUri, options); err != nil {
-			return fmt.Errorf("Error creating storage blob on Azure: %s", err)
+			return fmt.Errorf("Error creating oldstorage blob on Azure: %s", err)
 		}
 	} else {
 		switch strings.ToLower(blobType) {
 		case "append":
-			options := &storage.PutBlobOptions{}
+			options := &oldstorage.PutBlobOptions{}
 			if err := blob.PutAppendBlob(options); err != nil {
 				return fmt.Errorf("Error creating append blob on Azure: %s", err)
 			}
 
 		case "block":
-			options := &storage.PutBlobOptions{}
+			options := &oldstorage.PutBlobOptions{}
 			if err := blob.CreateBlockBlob(options); err != nil {
-				return fmt.Errorf("Error creating storage blob on Azure: %s", err)
+				return fmt.Errorf("Error creating oldstorage blob on Azure: %s", err)
 			}
 
 			source := d.Get("source").(string)
@@ -184,7 +187,7 @@ func resourceArmStorageBlobCreate(d *schema.ResourceData, meta interface{}) erro
 				attempts := d.Get("attempts").(int)
 
 				if err := resourceArmStorageBlobBlockUploadFromSource(containerName, name, source, contentType, blobClient, parallelism, attempts); err != nil {
-					return fmt.Errorf("Error creating storage blob on Azure: %s", err)
+					return fmt.Errorf("Error creating oldstorage blob on Azure: %s", err)
 				}
 			}
 		case "page":
@@ -194,16 +197,16 @@ func resourceArmStorageBlobCreate(d *schema.ResourceData, meta interface{}) erro
 				attempts := d.Get("attempts").(int)
 
 				if err := resourceArmStorageBlobPageUploadFromSource(containerName, name, source, contentType, blobClient, parallelism, attempts); err != nil {
-					return fmt.Errorf("Error creating storage blob on Azure: %s", err)
+					return fmt.Errorf("Error creating oldstorage blob on Azure: %s", err)
 				}
 			} else {
 				size := int64(d.Get("size").(int))
-				options := &storage.PutBlobOptions{}
+				options := &oldstorage.PutBlobOptions{}
 
 				blob.Properties.ContentLength = size
 				blob.Properties.ContentType = contentType
 				if err := blob.PutPageBlob(options); err != nil {
-					return fmt.Errorf("Error creating storage blob on Azure: %s", err)
+					return fmt.Errorf("Error creating oldstorage blob on Azure: %s", err)
 				}
 			}
 		}
@@ -211,9 +214,9 @@ func resourceArmStorageBlobCreate(d *schema.ResourceData, meta interface{}) erro
 
 	blob.Metadata = expandStorageAccountBlobMetadata(d)
 
-	opts := &storage.SetBlobMetadataOptions{}
+	opts := &oldstorage.SetBlobMetadataOptions{}
 	if err := blob.SetMetadata(opts); err != nil {
-		return fmt.Errorf("Error setting metadata for storage blob on Azure: %s", err)
+		return fmt.Errorf("Error setting metadata for oldstorage blob on Azure: %s", err)
 	}
 
 	d.SetId(id)
@@ -240,7 +243,7 @@ func resourceArmStorageBlobUpdate(d *schema.ResourceData, meta interface{}) erro
 
 	blobClient, accountExists, err := armClient.getBlobStorageClientForStorageAccount(ctx, *resourceGroup, id.storageAccountName)
 	if err != nil {
-		return fmt.Errorf("Error getting storage account %s: %+v", id.storageAccountName, err)
+		return fmt.Errorf("Error getting oldstorage account %s: %+v", id.storageAccountName, err)
 	}
 	if !accountExists {
 		return fmt.Errorf("Storage account %s not found in resource group %s", id.storageAccountName, *resourceGroup)
@@ -253,18 +256,18 @@ func resourceArmStorageBlobUpdate(d *schema.ResourceData, meta interface{}) erro
 		blob.Properties.ContentType = d.Get("content_type").(string)
 	}
 
-	options := &storage.SetBlobPropertiesOptions{}
+	options := &oldstorage.SetBlobPropertiesOptions{}
 	err = blob.SetProperties(options)
 	if err != nil {
-		return fmt.Errorf("Error setting properties of blob %s (container %s, storage account %s): %+v", id.blobName, id.containerName, id.storageAccountName, err)
+		return fmt.Errorf("Error setting properties of blob %s (container %s, oldstorage account %s): %+v", id.blobName, id.containerName, id.storageAccountName, err)
 	}
 
 	if d.HasChange("metadata") {
 		blob.Metadata = expandStorageAccountBlobMetadata(d)
 
-		opts := &storage.SetBlobMetadataOptions{}
+		opts := &oldstorage.SetBlobMetadataOptions{}
 		if err := blob.SetMetadata(opts); err != nil {
-			return fmt.Errorf("Error setting metadata for storage blob on Azure: %s", err)
+			return fmt.Errorf("Error setting metadata for oldstorage blob on Azure: %s", err)
 		}
 	}
 
@@ -272,115 +275,90 @@ func resourceArmStorageBlobUpdate(d *schema.ResourceData, meta interface{}) erro
 }
 
 func resourceArmStorageBlobRead(d *schema.ResourceData, meta interface{}) error {
-	armClient := meta.(*ArmClient)
-	ctx := armClient.StopContext
+	ctx := meta.(*ArmClient).StopContext
+	storageClient := meta.(*ArmClient).storage
 
-	id, err := parseStorageBlobID(d.Id(), armClient.environment)
+	id, err := blobs.ParseResourceID(d.Id())
 	if err != nil {
 		return err
 	}
 
-	resourceGroup, err := determineResourceGroupForStorageAccount(id.storageAccountName, armClient)
+	resourceGroup, err := storageClient.FindResourceGroup(ctx, id.AccountName)
 	if err != nil {
-		return err
+		return fmt.Errorf("Error locating Resource Group for Storage Account %q: %s", id.AccountName, err)
 	}
-
 	if resourceGroup == nil {
-		return fmt.Errorf("Unable to determine Resource Group for Storage Account %q", id.storageAccountName)
-	}
-
-	blobClient, accountExists, err := armClient.getBlobStorageClientForStorageAccount(ctx, *resourceGroup, id.storageAccountName)
-	if err != nil {
-		return err
-	}
-	if !accountExists {
-		log.Printf("[DEBUG] Storage account %q not found, removing blob %q from state", id.storageAccountName, d.Id())
+		log.Printf("[DEBUG] Unable to locate Resource Group for Storage Account %q - assuming removed & removing from state", id.AccountName)
 		d.SetId("")
 		return nil
 	}
 
-	log.Printf("[INFO] Checking for existence of storage blob %q in container %q.", id.blobName, id.containerName)
-	container := blobClient.GetContainerReference(id.containerName)
-	blob := container.GetBlobReference(id.blobName)
-	exists, err := blob.Exists()
+	client, err := storageClient.BlobsClient(ctx, *resourceGroup, id.AccountName)
 	if err != nil {
-		return fmt.Errorf("error checking for existence of storage blob %q: %s", id.blobName, err)
+		return fmt.Errorf("Error building Blobs Client for Storage Account %q (Resource Group %q): %s", id.AccountName, *resourceGroup, err)
 	}
 
-	if !exists {
-		log.Printf("[INFO] Storage blob %q no longer exists, removing from state...", id.blobName)
-		d.SetId("")
-		return nil
-	}
-
-	options := &storage.GetBlobPropertiesOptions{}
-	err = blob.GetProperties(options)
+	input := blobs.GetPropertiesInput{}
+	props, err := client.GetProperties(ctx, id.AccountName, id.ContainerName, id.BlobName, input)
 	if err != nil {
-		return fmt.Errorf("Error getting properties of blob %s (container %s, storage account %s): %+v", id.blobName, id.containerName, id.storageAccountName, err)
+		if utils.ResponseWasNotFound(props.Response) {
+			log.Printf("[DEBUG] Blob %q was not found in Container %q / Account %q - removing from state!", id.BlobName, id.ContainerName, id.AccountName)
+			d.SetId("")
+			return nil
+		}
+
+		return fmt.Errorf("Error retrieving Blob %q (Container %q / Account %q): %s", id.BlobName, id.ContainerName, id.AccountName, err)
 	}
 
-	metadataOptions := &storage.GetBlobMetadataOptions{}
-	err = blob.GetMetadata(metadataOptions)
-	if err != nil {
-		return fmt.Errorf("Error getting metadata of blob %s (container %s, storage account %s): %+v", id.blobName, id.containerName, id.storageAccountName, err)
-	}
-
-	d.Set("name", id.blobName)
-	d.Set("storage_container_name", id.containerName)
-	d.Set("storage_account_name", id.storageAccountName)
+	d.Set("name", id.BlobName)
+	d.Set("storage_container_name", id.ContainerName)
+	d.Set("storage_account_name", id.AccountName)
 	d.Set("resource_group_name", resourceGroup)
 
-	d.Set("content_type", blob.Properties.ContentType)
+	d.Set("content_type", props.ContentType)
+	d.Set("source_uri", props.CopySource)
 
-	d.Set("source_uri", blob.Properties.CopySource)
+	// TODO: expose the other fields
 
-	blobType := strings.ToLower(strings.Replace(string(blob.Properties.BlobType), "Blob", "", 1))
+	blobType := strings.ToLower(strings.Replace(string(props.BlobType), "Blob", "", 1))
 	d.Set("type", blobType)
+	d.Set("url", client.GetResourceID(id.AccountName, id.ContainerName, id.BlobName))
 
-	u := blob.GetURL()
-	if u == "" {
-		log.Printf("[INFO] URL for %q is empty", id.blobName)
+	if err := d.Set("metadata", storage.FlattenMetaData(props.MetaData)); err != nil {
+		return fmt.Errorf("Error setting `metadata`: %s", err)
 	}
-	d.Set("url", u)
-	d.Set("metadata", flattenStorageAccountBlobMetadata(blob.Metadata))
 
 	return nil
 }
 
 func resourceArmStorageBlobDelete(d *schema.ResourceData, meta interface{}) error {
-	armClient := meta.(*ArmClient)
-	ctx := armClient.StopContext
+	ctx := meta.(*ArmClient).StopContext
+	storageClient := meta.(*ArmClient).storage
 
-	id, err := parseStorageBlobID(d.Id(), armClient.environment)
+	id, err := blobs.ParseResourceID(d.Id())
 	if err != nil {
 		return err
 	}
 
-	resourceGroup, err := determineResourceGroupForStorageAccount(id.storageAccountName, armClient)
+	resourceGroup, err := storageClient.FindResourceGroup(ctx, id.AccountName)
 	if err != nil {
-		return fmt.Errorf("Unable to determine Resource Group for Storage Account %q: %+v", id.storageAccountName, err)
+		return fmt.Errorf("Error locating Resource Group for Storage Account %q: %s", id.AccountName, err)
 	}
 	if resourceGroup == nil {
-		log.Printf("[INFO] Resource Group doesn't exist so the blob won't exist")
+		log.Printf("[DEBUG] Unable to locate Resource Group for Storage Account %q - assuming removed & removing from state", id.AccountName)
 		return nil
 	}
 
-	blobClient, accountExists, err := armClient.getBlobStorageClientForStorageAccount(ctx, *resourceGroup, id.storageAccountName)
+	client, err := storageClient.BlobsClient(ctx, *resourceGroup, id.AccountName)
 	if err != nil {
-		return err
-	}
-	if !accountExists {
-		log.Printf("[INFO] Storage Account %q doesn't exist so the blob won't exist", id.storageAccountName)
-		return nil
+		return fmt.Errorf("Error building Blobs Client for Storage Account %q (Resource Group %q): %s", id.AccountName, *resourceGroup, err)
 	}
 
-	log.Printf("[INFO] Deleting storage blob %q", id.blobName)
-	options := &storage.DeleteBlobOptions{}
-	container := blobClient.GetContainerReference(id.containerName)
-	blob := container.GetBlobReference(id.blobName)
-	_, err = blob.DeleteIfExists(options)
-	if err != nil {
-		return fmt.Errorf("Error deleting storage blob %q: %s", id.blobName, err)
+	input := blobs.DeleteInput{
+		DeleteSnapshots: true,
+	}
+	if _, err := client.Delete(ctx, id.AccountName, id.ContainerName, id.BlobName, input); err != nil {
+		return fmt.Errorf("Error deleting Blob %q (Container %q / Storage Account %q / Resource Group %q): %s", id.BlobName, id.ContainerName, id.AccountName, *resourceGroup, err)
 	}
 
 	return nil
