@@ -5,7 +5,6 @@ import (
 	"log"
 	"strings"
 
-	oldstorage "github.com/Azure/azure-sdk-for-go/storage"
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/azure"
@@ -37,7 +36,7 @@ func resourceArmStorageBlob() *schema.Resource {
 			},
 
 			// TODO: deprecate me
-			"resource_group_name": azure.SchemaResourceGroupName(),
+			"resource_group_name": azure.SchemaResourceGroupNameDeprecated(),
 
 			"storage_account_name": {
 				Type:         schema.TypeString,
@@ -142,10 +141,6 @@ func resourceArmStorageBlobCreate(d *schema.ResourceData, meta interface{}) erro
 		return fmt.Errorf("Error building Blobs Client for Storage Account %q (Resource Group %q): %s", accountName, *resourceGroup, err)
 	}
 
-	blobType := d.Get("type").(string)
-	sourceUri := d.Get("source_uri").(string)
-	contentType := d.Get("content_type").(string)
-
 	log.Printf("[INFO] Creating blob %q in container %q within storage account %q", blobName, containerName, accountName)
 
 	id := client.GetResourceID(accountName, containerName, blobName)
@@ -162,73 +157,43 @@ func resourceArmStorageBlobCreate(d *schema.ResourceData, meta interface{}) erro
 		}
 	}
 
-	// OLD
-	blobClient, accountExists, err := meta.(*ArmClient).getBlobStorageClientForStorageAccount(ctx, *resourceGroup, accountName)
-	if err != nil {
+	metaDataRaw := d.Get("metadata").(map[string]interface{})
+	metaData := storage.ExpandMetaData(metaDataRaw)
+
+	blob := storage.CreateBlob{
+		AccountName:   accountName,
+		BlobName:      blobName,
+		ContainerName: containerName,
+		ContentType:   d.Get("content_type").(string),
+		MetaData:      metaData,
+		Type:          strings.ToLower(d.Get("type").(string)),
+	}
+
+	if v := d.Get("source").(string); v != "" {
+		blob.Source = v
+	}
+	if v := d.Get("source_uri").(string); v != "" {
+		blob.SourceURI = v
+	}
+	if v := d.Get("size").(int); v != 0 {
+		blob.Size = int64(v)
+	}
+
+	if err := blob.Create(ctx, client); err != nil {
 		return err
 	}
-	if !accountExists {
-		return fmt.Errorf("Storage Account %q Not Found", accountName)
-	}
-	container := blobClient.GetContainerReference(containerName)
-	blob := container.GetBlobReference(blobName)
-	// </OLD>
 
-	if sourceUri != "" {
-		options := &oldstorage.CopyOptions{}
-		if err := blob.Copy(sourceUri, options); err != nil {
-			return fmt.Errorf("Error creating oldstorage blob on Azure: %s", err)
-		}
-	} else {
-		switch strings.ToLower(blobType) {
-		case "append":
-			options := &oldstorage.PutBlobOptions{}
-			if err := blob.PutAppendBlob(options); err != nil {
-				return fmt.Errorf("Error creating append blob on Azure: %s", err)
-			}
-
-		case "block":
-			options := &oldstorage.PutBlobOptions{}
-			if err := blob.CreateBlockBlob(options); err != nil {
-				return fmt.Errorf("Error creating oldstorage blob on Azure: %s", err)
-			}
-
-			source := d.Get("source").(string)
-			if source != "" {
-				parallelism := d.Get("parallelism").(int)
-				attempts := d.Get("attempts").(int)
-
-				if err := resourceArmStorageBlobBlockUploadFromSource(containerName, blobName, source, contentType, blobClient, parallelism, attempts); err != nil {
-					return fmt.Errorf("Error creating oldstorage blob on Azure: %s", err)
-				}
-			}
-		case "page":
-			source := d.Get("source").(string)
-			if source != "" {
-				parallelism := d.Get("parallelism").(int)
-				attempts := d.Get("attempts").(int)
-
-				if err := resourceArmStorageBlobPageUploadFromSource(containerName, blobName, source, contentType, blobClient, parallelism, attempts); err != nil {
-					return fmt.Errorf("Error creating oldstorage blob on Azure: %s", err)
-				}
-			} else {
-				size := int64(d.Get("size").(int))
-				options := &oldstorage.PutBlobOptions{}
-
-				blob.Properties.ContentLength = size
-				blob.Properties.ContentType = contentType
-				if err := blob.PutPageBlob(options); err != nil {
-					return fmt.Errorf("Error creating oldstorage blob on Azure: %s", err)
-				}
-			}
-		}
+	props := blobs.SetPropertiesInput{}
+	if v := d.Get("size").(int); v != 0 {
+		props.ContentLength = utils.Int64(int64(v))
 	}
 
-	blob.Metadata = expandStorageAccountBlobMetadata(d)
+	if v := d.Get("content_type").(string); v != "" {
+		props.ContentType = utils.String(v)
+	}
 
-	opts := &oldstorage.SetBlobMetadataOptions{}
-	if err := blob.SetMetadata(opts); err != nil {
-		return fmt.Errorf("Error setting metadata for oldstorage blob on Azure: %s", err)
+	if _, err := client.SetProperties(ctx, accountName, containerName, blobName, props); err != nil {
+		return fmt.Errorf("Error setting properties for Blob %q (Container %q / Account %q): %s", blobName, containerName, accountName, err)
 	}
 
 	d.SetId(id)
