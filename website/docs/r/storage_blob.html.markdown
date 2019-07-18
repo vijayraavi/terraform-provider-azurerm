@@ -59,8 +59,7 @@ The following arguments are supported:
 
 * `storage_container_name` - (Required) The name of the storage container in which this blob should be created.
 
-* `type` - (Optional) The type of the storage blob to be created. One of either `block` or `page`. When not copying from an existing blob,
-    this becomes required.
+* `type` - (Optional) The type of the storage blob to be created. One of either `append`, `block` or `page`. When not copying from an existing blob, this becomes required.
 
 * `size` - (Optional) Used only for `page` blobs to specify the size in bytes of the blob to be created. Must be a multiple of 512. Defaults to 0.
 

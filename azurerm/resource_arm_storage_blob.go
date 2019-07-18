@@ -60,10 +60,14 @@ func resourceArmStorageBlob() *schema.Resource {
 			},
 
 			"type": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.StringInSlice([]string{"block", "page"}, true),
+				Type:     schema.TypeString,
+				Optional: true,
+				ForceNew: true,
+				ValidateFunc: validation.StringInSlice([]string{
+					"append",
+					"block",
+					"page",
+				}, true),
 			},
 
 			"size": {
@@ -174,6 +178,12 @@ func resourceArmStorageBlobCreate(d *schema.ResourceData, meta interface{}) erro
 		}
 	} else {
 		switch strings.ToLower(blobType) {
+		case "append":
+			options := &storage.PutBlobOptions{}
+			if err := blob.PutAppendBlob(options); err != nil {
+				return fmt.Errorf("Error creating append blob on Azure: %s", err)
+			}
+
 		case "block":
 			options := &storage.PutBlobOptions{}
 			if err := blob.CreateBlockBlob(options); err != nil {
