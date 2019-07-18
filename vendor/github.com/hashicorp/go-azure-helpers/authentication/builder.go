@@ -14,9 +14,9 @@ type Builder struct {
 	TenantID       string
 	Environment    string
 
-	// Auxilary tenants can be used for multi tenant auth
+	// Auxiliary tenant IDs used for multi tenant auth
 	SupportsAuxiliaryTenants bool
-	AuxiliaryTenantIDs []string
+	AuxiliaryTenantIDs       []string
 
 	// The custom Resource Manager Endpoint which should be used
 	// only applicable for Azure Stack at this time.
@@ -56,6 +56,7 @@ func (b Builder) Build() (*Config, error) {
 	// since the Azure CLI Parsing should always be the last thing checked
 	supportedAuthenticationMethods := []authMethod{
 		servicePrincipalClientCertificateAuth{},
+		servicePrincipalClientSecretMultiTenantAuth{},
 		servicePrincipalClientSecretAuth{},
 		managedServiceIdentityAuth{},
 		azureCliTokenAuth{},
@@ -65,7 +66,6 @@ func (b Builder) Build() (*Config, error) {
 		name := method.name()
 		log.Printf("Testing if %s is applicable for Authentication..", name)
 
-		// todo if aux tenants check if there is support for multi tenant in the auth methold? or error if chosen one
 		// does not support it via validate?
 		if method.isApplicable(b) {
 			log.Printf("Using %s for Authentication", name)
@@ -83,8 +83,7 @@ func (b Builder) Build() (*Config, error) {
 
 			// todo why isn't this just auth.validate? extra function seems pointless as it is invalid until after we build irt
 			// and then its assured to be valid?
-			config.authMethod = auth
-			return config.validate()
+			return &config, config.authMethod.validate()
 		}
 	}
 

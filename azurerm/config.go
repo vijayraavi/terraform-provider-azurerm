@@ -316,21 +316,21 @@ func getArmClient(c *authentication.Config, skipProviderRegistration bool, partn
 
 	// Resource Manager endpoints
 	endpoint := env.ResourceManagerEndpoint
-	auth, err := c.GetAuthorizationTokenFromMultiOAuth(sender, oauth, env.TokenAudience)
+	auth, err := c.GetAuthorizationToken(sender, oauth, env.TokenAudience)
 	if err != nil {
 		return nil, err
 	}
 
 	// Graph Endpoints
 	graphEndpoint := env.GraphEndpoint
-	graphAuth, err := c.GetAuthorizationTokenFromMultiOAuth(sender, oauth, graphEndpoint)
+	graphAuth, err := c.GetAuthorizationToken(sender, oauth, graphEndpoint)
 	if err != nil {
 		return nil, err
 	}
 
 	// Key Vault Endpoints
 	keyVaultAuth := autorest.NewBearerAuthorizerCallback(sender, func(tenantID, resource string) (*autorest.BearerAuthorizer, error) {
-		keyVaultSpt, err := c.GetAuthorizationTokenFromMultiOAuth(sender, oauth, resource)
+		keyVaultSpt, err := c.GetAuthorizationToken(sender, oauth, resource)
 		if err != nil {
 			return nil, err
 		}

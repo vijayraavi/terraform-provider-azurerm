@@ -33,29 +33,18 @@ func (a servicePrincipalClientSecretAuth) name() string {
 	return "Service Principal / Client Secret"
 }
 
-func (a servicePrincipalClientSecretAuth) getAuthorizationToken(sender autorest.Sender, oauthConfig *adal.OAuthConfig, endpoint string) (*autorest.BearerAuthorizer, error) {
-	spt, err := adal.NewServicePrincipalToken(*oauthConfig, a.clientId, a.clientSecret, endpoint)
+func (a servicePrincipalClientSecretAuth) getAuthorizationToken(sender autorest.Sender, oauth *MultiOAuth, endpoint string) (autorest.Authorizer, error) {
+	if oauth.OAuth == nil {
+		return nil, fmt.Errorf("Error MultiOAuth did not contain a regular oauth token")
+	}
+
+	spt, err := adal.NewServicePrincipalToken(*oauth.OAuth, a.clientId, a.clientSecret, endpoint)
 	if err != nil {
 		return nil, err
 	}
 	spt.SetSender(sender)
 
 	return autorest.NewBearerAuthorizer(spt), nil
-}
-
-func (a servicePrincipalClientSecretAuth) getMultiTenantAuthorizationToken(sender autorest.Sender, oauthConfig *adal.MultiTenantOAuthConfig, endpoint string) (*autorest.MultiTenantServicePrincipalTokenAuthorizer, error) {
-	spt, err := adal.NewMultiTenantServicePrincipalToken(*oauthConfig, a.clientId, a.clientSecret, endpoint)
-	if err != nil {
-		return nil, err
-	}
-
-	spt.PrimaryToken.SetSender(sender)
-	for _, t := range spt.AuxiliaryTokens {
-		t.SetSender(sender)
-	}
-
-	auth := autorest.NewMultiTenantServicePrincipalTokenAuthorizer(spt)
-	return &auth, nil
 }
 
 func (a servicePrincipalClientSecretAuth) populateConfig(c *Config) error {
