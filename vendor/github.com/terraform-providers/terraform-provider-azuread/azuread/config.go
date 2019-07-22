@@ -10,7 +10,6 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/services/graphrbac/1.6/graphrbac"
 	"github.com/Azure/go-autorest/autorest"
-	"github.com/Azure/go-autorest/autorest/adal"
 	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/hashicorp/go-azure-helpers/authentication"
 	"github.com/hashicorp/go-azure-helpers/sender"
@@ -38,40 +37,35 @@ type ArmClient struct {
 }
 
 // getArmClient is a helper method which returns a fully instantiated *ArmClient based on the auth Config's current settings.
-func getArmClient(authCfg *authentication.Config) (*ArmClient, error) {
-	env, err := authentication.DetermineEnvironment(authCfg.Environment)
+func getArmClient(c *authentication.Config) (*ArmClient, error) {
+	env, err := authentication.DetermineEnvironment(c.Environment)
 	if err != nil {
 		return nil, err
 	}
 
 	// client declarations:
 	client := ArmClient{
-		subscriptionID: authCfg.SubscriptionID,
-		clientID:       authCfg.ClientID,
-		tenantID:       authCfg.TenantID,
+		subscriptionID: c.SubscriptionID,
+		clientID:       c.ClientID,
+		tenantID:       c.TenantID,
 		environment:    *env,
 	}
 
 	sender := ar.BuildSender()
 
-	oauthConfig, err := adal.NewOAuthConfig(env.ActiveDirectoryEndpoint, client.tenantID)
+	oauth, err := c.GetMultiOAuthConfig(env.ActiveDirectoryEndpoint)
 	if err != nil {
 		return nil, err
-	}
-
-	// OAuthConfigForTenant returns a pointer, which can be nil.
-	if oauthConfig == nil {
-		return nil, fmt.Errorf("Unable to configure OAuthConfig for tenant %s", client.tenantID)
 	}
 
 	// Graph Endpoints
 	graphEndpoint := env.GraphEndpoint
-	graphAuthorizer, err := authCfg.GetAuthorizationToken(sender, oauthConfig, graphEndpoint)
+	graphAuthorizer, err := c.GetAuthorizationToken(sender, oauth, graphEndpoint)
 	if err != nil {
 		return nil, err
 	}
 
-	client.registerGraphRBACClients(graphEndpoint, authCfg.TenantID, graphAuthorizer)
+	client.registerGraphRBACClients(graphEndpoint, c.TenantID, graphAuthorizer)
 
 	return &client, nil
 }

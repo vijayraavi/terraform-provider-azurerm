@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
-	`os`
+	"os"
 	"strings"
 
 	"github.com/hashicorp/go-azure-helpers/authentication"
@@ -14,7 +14,7 @@ import (
 	"github.com/hashicorp/terraform/terraform"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/suppress"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/validate"
-	`github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils`
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
 )
 
 // Provider returns a terraform.ResourceProvider.
@@ -40,9 +40,9 @@ func Provider() terraform.ResourceProvider {
 			},
 
 			"auxiliary_tenant_ids": {
-				Type:        schema.TypeList,
-				Optional:    true,
-				Elem:        &schema.Schema{Type: schema.TypeString},
+				Type:     schema.TypeList,
+				Optional: true,
+				Elem:     &schema.Schema{Type: schema.TypeString},
 				DefaultFunc: func() (interface{}, error) {
 					if v := os.Getenv("ARM_AUXILIARY_TENANT_IDS"); v != "" {
 						return strings.Split(v, ";"), nil
@@ -505,7 +505,6 @@ func providerConfigure(p *schema.Provider) schema.ConfigureFunc {
 
 		partnerId := d.Get("partner_id").(string)
 		skipProviderRegistration := d.Get("skip_provider_registration").(bool)
-
 
 		client, err := getArmClient(authConfig, skipProviderRegistration, partnerId)
 		if err != nil {

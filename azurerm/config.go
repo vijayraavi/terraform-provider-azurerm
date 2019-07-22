@@ -289,25 +289,25 @@ func setUserAgent(client *autorest.Client, partnerID string) {
 
 // getArmClient is a helper method which returns a fully instantiated
 // *ArmClient based on the Config's current settings.
-func getArmClient(c *authentication.Config, skipProviderRegistration bool, partnerId string) (*ArmClient, error) {
-	env, err := authentication.DetermineEnvironment(c.Environment)
+func getArmClient(authCfg *authentication.Config, skipProviderRegistration bool, partnerId string) (*ArmClient, error) {
+	env, err := authentication.DetermineEnvironment(authCfg.Environment)
 	if err != nil {
 		return nil, err
 	}
 
 	// client declarations:
 	client := ArmClient{
-		clientId:                 c.ClientID,
-		tenantId:                 c.TenantID,
-		auxiliaryTenantIDs: c.AuxiliaryTenantIDs,
-		subscriptionId:           c.SubscriptionID,
+		clientId:                 authCfg.ClientID,
+		tenantId:                 authCfg.TenantID,
+		auxiliaryTenantIDs:       authCfg.AuxiliaryTenantIDs,
+		subscriptionId:           authCfg.SubscriptionID,
 		partnerId:                partnerId,
 		environment:              *env,
-		usingServicePrincipal:    c.AuthenticatedAsAServicePrincipal,
+		usingServicePrincipal:    authCfg.AuthenticatedAsAServicePrincipal,
 		skipProviderRegistration: skipProviderRegistration,
 	}
 
-	oauth, err := c.GetMultiOAuthConfig(env.ActiveDirectoryEndpoint)
+	oauth, err := authCfg.GetMultiOAuthConfig(env.ActiveDirectoryEndpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -316,21 +316,26 @@ func getArmClient(c *authentication.Config, skipProviderRegistration bool, partn
 
 	// Resource Manager endpoints
 	endpoint := env.ResourceManagerEndpoint
-	auth, err := c.GetAuthorizationToken(sender, oauth, env.TokenAudience)
+	auth, err := authCfg.GetAuthorizationToken(sender, oauth, env.TokenAudience)
 	if err != nil {
 		return nil, err
 	}
 
 	// Graph Endpoints
 	graphEndpoint := env.GraphEndpoint
-	graphAuth, err := c.GetAuthorizationToken(sender, oauth, graphEndpoint)
+	graphAuth, err := authCfg.GetAuthorizationToken(sender, oauth, graphEndpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	keyVaultAuth, err := authCfg.GetAuthorizationToken(sender, oauth, graphEndpoint)
 	if err != nil {
 		return nil, err
 	}
 
 	// Key Vault Endpoints
 	keyVaultAuth := autorest.NewBearerAuthorizerCallback(sender, func(tenantID, resource string) (*autorest.BearerAuthorizer, error) {
-		keyVaultSpt, err := c.GetAuthorizationToken(sender, oauth, resource)
+		keyVaultSpt, err := authCfg.GetAuthorizationToken(sender, oauth, resource)
 		if err != nil {
 			return nil, err
 		}
@@ -344,7 +349,7 @@ func getArmClient(c *authentication.Config, skipProviderRegistration bool, partn
 		KeyVaultAuthorizer:         keyVaultAuth,
 		ResourceManagerAuthorizer:  auth,
 		ResourceManagerEndpoint:    endpoint,
-		SubscriptionId:             c.SubscriptionID,
+		SubscriptionId:             authCfg.SubscriptionID,
 		PartnerId:                  partnerId,
 		PollingDuration:            60 * time.Minute,
 		SkipProviderReg:            skipProviderRegistration,
@@ -385,19 +390,19 @@ func getArmClient(c *authentication.Config, skipProviderRegistration bool, partn
 	client.signalr = signalr.BuildClient(o)
 	client.trafficManager = trafficmanager.BuildClient(o)
 
-	client.registerAuthentication(endpoint, graphEndpoint, c.SubscriptionID, c.TenantID, auth, graphAuth)
-	client.registerBatchClients(endpoint, c.SubscriptionID, auth)
-	client.registerComputeClients(endpoint, c.SubscriptionID, auth)
-	client.registerCosmosAccountsClients(endpoint, c.SubscriptionID, auth)
-	client.registerDatabases(endpoint, c.SubscriptionID, auth, sender)
-	client.registerDataLakeStoreClients(endpoint, c.SubscriptionID, auth)
-	client.registerKeyVaultClients(endpoint, c.SubscriptionID, auth, keyVaultAuth)
-	client.registerMonitorClients(endpoint, c.SubscriptionID, auth)
-	client.registerNetworkingClients(endpoint, c.SubscriptionID, auth)
-	client.registerResourcesClients(endpoint, c.SubscriptionID, auth)
-	client.registerStorageClients(endpoint, c.SubscriptionID, auth)
-	client.registerStreamAnalyticsClients(endpoint, c.SubscriptionID, auth)
-	client.registerWebClients(endpoint, c.SubscriptionID, auth)
+	client.registerAuthentication(endpoint, graphEndpoint, authCfg.SubscriptionID, authCfg.TenantID, auth, graphAuth)
+	client.registerBatchClients(endpoint, authCfg.SubscriptionID, auth)
+	client.registerComputeClients(endpoint, authCfg.SubscriptionID, auth)
+	client.registerCosmosAccountsClients(endpoint, authCfg.SubscriptionID, auth)
+	client.registerDatabases(endpoint, authCfg.SubscriptionID, auth, sender)
+	client.registerDataLakeStoreClients(endpoint, authCfg.SubscriptionID, auth)
+	client.registerKeyVaultClients(endpoint, authCfg.SubscriptionID, auth, keyVaultAuth)
+	client.registerMonitorClients(endpoint, authCfg.SubscriptionID, auth)
+	client.registerNetworkingClients(endpoint, authCfg.SubscriptionID, auth)
+	client.registerResourcesClients(endpoint, authCfg.SubscriptionID, auth)
+	client.registerStorageClients(endpoint, authCfg.SubscriptionID, auth)
+	client.registerStreamAnalyticsClients(endpoint, authCfg.SubscriptionID, auth)
+	client.registerWebClients(endpoint, authCfg.SubscriptionID, auth)
 
 	return &client, nil
 }
