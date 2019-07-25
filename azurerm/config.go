@@ -39,6 +39,7 @@ import (
 	"github.com/hashicorp/go-azure-helpers/authentication"
 	"github.com/hashicorp/go-azure-helpers/sender"
 	"github.com/hashicorp/terraform/httpclient"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/authorizers"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/common"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/apimanagement"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/applicationinsights"
@@ -328,13 +329,8 @@ func getArmClient(authCfg *authentication.Config, skipProviderRegistration bool,
 		return nil, err
 	}
 
-	keyVaultAuth, err := authCfg.GetAuthorizationToken(sender, oauth, graphEndpoint)
-	if err != nil {
-		return nil, err
-	}
-
 	// Key Vault Endpoints
-	keyVaultAuth := autorest.NewBearerAuthorizerCallback(sender, func(tenantID, resource string) (*autorest.BearerAuthorizer, error) {
+	keyVaultAuth := authorizers.NewAuthorizerCallback(sender, func(tenantID, resource string) (autorest.Authorizer, error) {
 		keyVaultSpt, err := authCfg.GetAuthorizationToken(sender, oauth, resource)
 		if err != nil {
 			return nil, err
